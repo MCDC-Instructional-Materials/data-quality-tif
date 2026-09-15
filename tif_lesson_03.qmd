@@ -1,0 +1,424 @@
+---
+title: "Data Detective: Finding and Fixing Problems in Real-World Data"
+subtitle: "TIF Lesson 3 in R"
+author: "Danielle Sass"
+date: last-modified
+format:
+  html:
+    theme: cosmo
+    toc: true
+    toc-depth: 3
+    toc-location: left
+    number-sections: true
+    code-fold: false
+    embed-resources: true
+    link-external-newwindow: true
+    
+execute:
+  echo: true
+  warning: false
+  message: false
+---
+
+## Overview
+
+In this lesson, we will clean the dataset from **Lesson 2** so that our data is usable for analysis by checking data typing and potential data entry errors.
+
+### Learning Objectives
+
+- Identify common R variable types, including numeric, character, logical, factor, and date.
+- Convert variables between data types using functions such as `as.character()`, `as.numeric()`, and `parse_number()`.
+- Identify and investigate potential data-quality issues using summary statistics and filtering.
+- Use relationships between variables to identify potentially erroneous observations.
+- Establish reasonable and defensible rules for identifying and handling potential data errors.
+- Use `ifelse()` and `case_when()` to replace problematic values with `NA`.
+Preserve the original dataset while creating a cleaned version for analysis.
+
+### Packages Needed
+
+The following package is needed for this lesson:
+
+```{r}
+library(tidyverse)
+```
+
+
+### Reading in the Data
+
+The following line of code reads in the `tif_data.csv` file from the `data/` subdirectory. If your dataset is stored in a different folder or named something different you will need to modify the code accordingly.
+
+```{r}
+tif_data <- read_csv("data/tif_data.csv")
+```
+
+## Variable types
+
+R stores data using different **variable types**. Some common types include:
+
+- `numeric` — numbers that can be used in mathematical calculations
+- `character` — text or strings
+- `logical` — `TRUE` or `FALSE`
+- `factor` — categorical variables with a defined set of levels
+- `date` — calendar dates that can be used for date-based calculations
+
+When we read data into R, we should check that each variable has been assigned an appropriate type. A variable that contains numbers may be read as `character`, for example, if the values contain dollar signs or commas.
+
+Before analyzing our data, let's inspect the variable types in `tif_data`.
+
+::: {.callout-tip appearance="minimal" icon="false"}
+## Your Turn
+
+Use a function to inspect the structure and variable types of `tif_data`.
+
+Then consider:
+
+1. Which variables should be stored as `character`?
+2. Which variables should be stored as `numeric`?
+3. Are any variables currently stored as the wrong type?
+
+:::
+
+::: {.callout-warning collapse="true" icon="false"}
+## Hint
+
+Try using the `glimpse()` function to quickly inspect the variables and their types.
+
+:::
+
+::: {.callout-note collapse="true" icon="false"}
+## Solution
+
+The variables that should be stored as `character` are:
+
+- `tif_name`
+- `bank`
+
+The variables that should be stored as `numeric` are:
+
+- `tif_year`
+- `start_year`
+- `end_year`
+- `property_tax_extraction`
+- `cumulative_property_tax_extraction`
+- `transfers_in`
+- `cumulative_transfers_in`
+- `expenses`
+- `transfers_out`
+- `distribution`
+- `fund_balance_end`
+- `admin_costs`
+- `finance_costs`
+
+- `tif_number` is stored as numeric because it contains numbers, but it is actually an **identifier** rather than a quantitative variable. We don't generally calculate an average TIF number or interpret it as a measurement.
+
+:::
+
+### Converting Variable Types
+
+Sometimes a variable is not stored using the type we need. We can use functions such as `as.character()`, `as.numeric()` and `parse_number()` to convert variables, to name a few.
+
+The `as.character()` function converts values to character strings.
+
+The `parse_number()` function from `readr` is particularly useful when numbers contain additional formatting. For example, monetary variables may contain dollar signs and commas: "$5,273,855". `parse_number()` recognizes the numeric portion of a formatted value and converts it to a numeric value.
+
+For example, we can convert `transfers_in`:
+
+```{r}
+tif_data <- tif_data |> 
+  mutate(
+    transfers_in = parse_number(transfers_in)
+  )
+```
+
+Notice that we don't need to use `as.numeric()` here. Because our monetary variables contain characters such as `$` and `,`, `parse_number()` is better suited to these data.
+
+### Handling parsing warnings
+
+Let's try to convert `property_tax_extraction` using `parse_number()`:
+
+```{r}
+tif_data_warning <- tif_data |> 
+  mutate(
+    property_tax_extraction = parse_number(property_tax_extraction)
+  )
+```
+
+Notice that R gives us a warning indicating that parsing failed for 42 observations.
+
+When we inspect the parsing failures, we find values such as: "-$ 253,084".
+
+The problem is not that the value is negative. parse_number() can correctly handle a standard negative number such as -253,084. Instead, the issue is that the negative sign appears before the dollar sign.
+
+Because we know that these values contain only formatting characters that we don't need, we can remove the dollar signs, commas, and spaces before converting the values to numeric using a function from the `stringr` package.
+
+```{r}
+tif_data <- tif_data |> 
+  mutate(
+    property_tax_extraction = str_remove_all(property_tax_extraction, "[$,\\s]") |>  as.numeric()
+  )
+```
+
+
+::: {.callout-tip appearance="minimal" icon="false"}
+## Your Turn
+
+Convert the remaining monetary variables to numeric. 
+
+You can use any method you think is appropriate, but check your results carefully. In particular, make sure that negative values are converted correctly rather than simply being treated as positive values.
+
+Do not convert `tif_name` or `bank`, since these variables should remain character.
+
+:::
+
+
+::: {.callout-note collapse="true" icon="false"}
+## Solution
+
+`admin_costs` and `finance_costs` are already `numeric` so we do not need to convert them.
+
+```{r}
+tif_data <- tif_data |> 
+  mutate(
+    cumulative_property_tax_extraction =    parse_number(cumulative_property_tax_extraction),
+    cumulative_transfers_in = parse_number(cumulative_transfers_in),
+    expenses = str_remove_all(expenses, "[$,\\s]") |>  as.numeric(),
+    transfers_out = parse_number(transfers_out),
+    distribution = str_remove_all(distribution, "[$,\\s]") |>  as.numeric(),
+    #distribution = parse_number(distribution),
+    fund_balance_end = str_remove_all(fund_balance_end , "[$,\\s]") |>  as.numeric()
+  )
+```
+
+
+:::
+
+
+## Data checking
+
+Now that our variables have been assigned the appropriate data types, we can begin checking whether the values themselves look reasonable.
+
+Data can contain errors for many reasons. For example, when data are collected through an automated scraping process, numbers may be extracted incorrectly. Manually entered data can also contain typos or other inconsistencies.
+
+One way to identify potential problems is to examine **summary statistics** for our numeric variables. Summary statistics can help us identify values that are unusually large, unusually small, or otherwise outside of what we would expect.
+
+::: {.callout-tip appearance="minimal" icon="false"}
+## Your Turn
+
+Find a function that will provide summary statistics for the variables in `tif_data`.
+
+Use the function to inspect the data and look for values that seem unusual or unexpected.
+
+**What potential data-quality issues do you notice?**
+:::
+
+::: {.callout-note collapse="true" icon="false"}
+## Hint
+
+A few options:
+
+- `skim()` function from the `skimr` package
+- `summary()` function 
+- `summarize()` calculations of interest
+
+:::
+
+::: {.callout-note collapse="true" icon="false"}
+## Solution
+
+```{r}
+summary(tif_data)
+```
+
+:::
+
+### Investigating Potential Errors
+
+Summary statistics can help us identify observations that deserve further investigation, but they cannot tell us whether an unusual value is actually incorrect.
+
+For example, suppose we notice that some values of `cumulative_property_tax_extraction` are unusually small or large. We can use `filter()` to identify the corresponding observations and investigate them further.
+
+::: {.callout-tip appearance="minimal" icon="false"}
+## Your Turn
+
+Use the summary statistics to identify potentially unusual values of `cumulative_property_tax_extraction`.
+
+Use `filter()` to examine observations with unusually small or large values.
+
+Consider:
+
+- Are the unusual values plausible?
+- Are there multiple observations with similar values?
+- How do the values compare with related variables, such as `property_tax_extraction`?
+- Do any observations violate relationships that we would expect to hold?
+- What additional information would you need to determine whether a value is actually incorrect?
+
+:::
+
+
+::: {.callout-note collapse="true" icon="false"}
+## A Possible Solution
+
+```{r}
+check_property_tax <- tif_data |> 
+  filter(
+    # lower 2% of data
+    cumulative_property_tax_extraction < quantile(
+      cumulative_property_tax_extraction, 
+      0.02, 
+      na.rm = TRUE
+    ) |
+    # upper 2% of data
+    cumulative_property_tax_extraction > quantile(
+      cumulative_property_tax_extraction, 
+      0.98, 
+      na.rm = TRUE
+    )
+  ) |> 
+  arrange(cumulative_property_tax_extraction)
+```
+
+The unusually large values do not necessarily indicate errors. Several observations have similarly large values, and the corresponding values of `property_tax_extraction` provide additional context for determining whether the values are plausible.
+
+Some of the unusually small values, however, appear more suspicious. We can also identify observations where: `property_tax_extraction > cumulative_property_tax_extraction`
+
+Because cumulative property tax extraction should generally represent an accumulation over time, this relationship provides another useful data-quality check.
+
+:::
+
+At this point, we have identified potential errors, but we have not yet established that they are errors. One option would be to open the corresponding PDF reports and compare the extracted values with the original documents.
+
+Checking every unusual observation against its original PDF would provide the most reliable way to determine whether each value is correct. However, this may not be practical when working with a large dataset.
+
+Instead, we can establish reasonable **data-cleaning rules** based on the patterns we observed.
+
+For example, our investigation suggests that we should flag:
+
+1. Values of `property_tax_extraction` that are greater than `cumulative_property_tax_extraction`.
+
+Rather than overwriting the original data, we will create a new data frame called `tif_data_clean`. This allows us to preserve the original scraped data while creating a version that we can use for analysis.
+
+```{r}
+tif_data_clean <- tif_data |> 
+  mutate(
+    cumulative_property_tax_extraction = case_when(
+      property_tax_extraction > cumulative_property_tax_extraction ~ NA,
+      TRUE ~ cumulative_property_tax_extraction
+    ),
+    # if we set cum_prop_tax to NA also set prop_tax to NA since
+    # the data entry error could belong to either
+    property_tax_extractions = ifelse(is.na(cumulative_property_tax_extraction),
+                                      NA,
+                                      property_tax_extraction)
+    
+  )
+```
+
+We could also further view the distribution in a histogram, density, or boxplot to check reason-ability.
+
+```{r}
+ggplot(tif_data_clean, aes(cumulative_property_tax_extraction)) + 
+  geom_boxplot()
+```
+
+
+::: {.callout-tip appearance="minimal" icon="false"}
+## Your Turn
+
+Inspect the remaining numeric variables for potential data-quality issues.
+
+For each variable:
+
+1. Look at its summary statistics.
+2. Identify values that seem unusual.
+3. Consider whether there is a logical relationship with another variable that can help you identify potential errors.
+4. Establish a reasonable rule for identifying values that should be treated as missing.
+5. Use `ifelse()` or `case_when()` to replace those values with `NA`.
+
+Remember that an unusual value is not automatically an error. Your goal is to develop a **reasonable and defensible cleaning rule** based on what you observe in the data.
+:::
+
+
+::: {.callout-note collapse="true" icon="false"}
+## A Possible Solution
+
+Check relationship between `transfers_in` and `cumulative_transfers_in`
+
+```{r}
+check_transfers_in <- tif_data |> 
+  mutate(check_relationship = cumulative_transfers_in < transfers_in) |> 
+  filter(
+    # lower 2% of data
+    cumulative_transfers_in < quantile(
+      cumulative_transfers_in, 
+      0.02, 
+      na.rm = TRUE
+    ) |
+    # upper 2% of data
+    cumulative_transfers_in > quantile(
+      cumulative_transfers_in, 
+      0.98, 
+      na.rm = TRUE
+    ) |
+      check_relationship
+  ) |> 
+  arrange(cumulative_transfers_in)
+```
+
+Check summary stats
+
+```{r}
+summary(tif_data)
+```
+
+- The extremely large negative expenses look questionable
+- The negative distribution and fund balance end need checking
+
+```{r}
+check_negatives <- tif_data |> 
+  filter(
+    distribution < 0 |
+      fund_balance_end < 0 | 
+      expenses < 0
+  )
+```
+
+Clean data that breaks any rules we established as likely impossible data.
+
+- after reviewing a few pdfs and reviewing documentation, there should be no negative expenses, and no negative distributions
+- single digit values "1" appear to mean only part of the value got scraped
+- all other values seem within reason
+
+```{r}
+tif_data_clean2 <- tif_data_clean |> 
+  mutate(
+    cumulative_transfers_in = case_when(
+      transfers_in > cumulative_transfers_in ~ NA,
+      TRUE ~ cumulative_transfers_in
+    ),
+    # if we set cum_transfers_in to NA also set transfers_in to NA since
+    # the data entry error could belong to either
+    transfers_in = ifelse(is.na(cumulative_transfers_in),
+                                      NA,
+                          transfers_in),
+    # negative or single digit typos
+    expenses = ifelse(expenses < 10, NA, expenses),
+    # negatives
+    distribution = ifelse(distribution < 0, NA, distribution),
+    fund_balance_end = ifelse(fund_balance_end > 0 & fund_balance_end < 10,
+                              NA, fund_balance_end)
+  )
+```
+
+:::
+
+
+## Save clean data
+
+Now that we have identified and addressed potential data-quality issues, we can save our cleaned dataset for future analysis.
+
+Use `write_csv()` to save `tif_data_clean` as `tif_data_clean.csv` in the `data` subdirectory. This allows us to use the cleaned data in future lessons without repeating the data-cleaning steps.
+
+```{r}
+write_csv(tif_data_clean2, "data/tif_data_clean.csv")
+```
+
